@@ -1,3 +1,4 @@
+using System.IO
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Http;
@@ -80,17 +81,25 @@ public static class Program
     public static async Task Main(string[] args)
     {
         // ⭐⭐⭐ ЗАМЕНИ ЭТУ СТРОКУ НА СВОЙ ТОКЕН БОТА ⭐⭐⭐
-        var botToken = "8352526572:AAHcL0WbFOCj8giPRjByI-8-TP0t2XU-j8Q";
-        
-        if (string.IsNullOrEmpty(botToken) || botToken.Contains("ABCdefGHIjklMNOpqrsTUVwxyz"))
-        {
-            Console.WriteLine("❌ PLEASE SET YOUR BOT TOKEN!");
-            Console.WriteLine("Replace the token in WeatherBot.cs file");
-            Console.WriteLine("Get token from @BotFather in Telegram");
-            return;
-        }
+        var tokenPath = Path.Combine("WeatherBot", "token.txt");
+    string botToken;
 
-        Console.WriteLine("🤖 Starting Weather Bot...");
-        await BotRunner.Run(botToken);
+    try
+    {
+        botToken = File.ReadAllText(tokenPath).Trim();
+    }
+    catch
+    {
+        Console.WriteLine($"❌ Could not read bot token from {tokenPath}!");
+        return;
+    }
+    if (string.IsNullOrWhiteSpace(botToken))
+    {
+        Console.WriteLine("❌ Bot token is missing or empty in token.txt.");
+        return;
+    }
+
+    Console.WriteLine("🤖 Starting Weather Bot...");
+    await BotRunner.Run(botToken);
     }
 }
