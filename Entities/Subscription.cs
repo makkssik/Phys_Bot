@@ -1,28 +1,49 @@
 namespace WeatherBot.Entities;
 
 using WeatherBot.Entities.ValueObjects;
+using System.Text.Json.Serialization;
 
 public sealed class Subscription
 {
-    public Guid Id { get; }
-    public long UserId { get; }
-    public string LocationName { get; }
-    public Coordinate Coordinate { get; } // Добавляем координаты
-    public DateTime CreatedAt { get; }
+    [JsonInclude]
+    public Guid Id { get; private set; }
+
+    [JsonInclude]
+    public long UserId { get; private set; }
+
+    [JsonInclude]
+    public string LocationName { get; private set; } = string.Empty;
+
+    [JsonInclude]
+    public Coordinate Coordinate { get; private set; } = default!; // Добавляем координаты
+
+    [JsonInclude]
+    public DateTime CreatedAt { get; private set; }
+
+    [JsonInclude]
     public bool SendDailyWeather { get; private set; }
+
+    [JsonInclude]
     public bool SendEmergencyAlerts { get; private set; }
 
     // Исправленный конструктор - теперь принимает 5 аргументов
-    public Subscription(long userId, string locationName, Coordinate coordinate, bool sendDailyWeather, bool sendEmergencyAlerts)
+    [JsonConstructor]
+    public Subscription(Guid id, long userId, string locationName, Coordinate coordinate, bool sendDailyWeather, bool sendEmergencyAlerts, DateTime createdAt)
     {
-        Id = Guid.NewGuid();
+        Id = id;
         UserId = userId;
         LocationName = locationName;
         Coordinate = coordinate; // Сохраняем координаты
         SendDailyWeather = sendDailyWeather;
         SendEmergencyAlerts = sendEmergencyAlerts;
-        CreatedAt = DateTime.UtcNow;
+        CreatedAt = createdAt;
     }
+
+    public Subscription(long userId, string locationName, Coordinate coordinate, bool sendDailyWeather, bool sendEmergencyAlerts)
+        : this(Guid.NewGuid(), userId, locationName, coordinate, sendDailyWeather, sendEmergencyAlerts, DateTime.UtcNow)
+    { }
+
+    private Subscription() { }
 
     public void UpdateSettings(bool sendDailyWeather, bool sendEmergencyAlerts)
     {

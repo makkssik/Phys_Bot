@@ -1,45 +1,50 @@
 using WeatherBot.Entities.ValueObjects;
+using System.Text.Json.Serialization;
 
 namespace WeatherBot.Entities;
 
 public sealed class User
 {
-    private readonly List<Subscription> _subscriptions = new();
+    [JsonInclude]
+    public List<Subscription> Subscriptions { get; private set; } = new();
 
-    public long Id { get; }
+    [JsonInclude]
+    public long Id { get; private set; }
 
-    public string Username { get; }
-
-    public IReadOnlyList<Subscription> Subscriptions => _subscriptions;
+    [JsonInclude]
+    public string Username { get; private set; } = string.Empty;
 
     public User(long id, string username)
     {
         Id = id;
         Username = username;
+        Subscriptions = new List<Subscription>();
     }
+
+    private User() { }
 
     // Исправленный метод - теперь принимает Coordinate
     public Subscription AddSubscription(string locationName, Coordinate coordinate, bool sendDailyWeather, bool sendEmergencyAlerts)
     {
-        if (_subscriptions.Any(s => s.LocationName.Equals(locationName, StringComparison.OrdinalIgnoreCase)))
+        if (Subscriptions.Any(s => s.LocationName.Equals(locationName, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidOperationException($"Already subscribed to {locationName}");
 
         var subscription = new Subscription(Id, locationName, coordinate, sendDailyWeather, sendEmergencyAlerts);
-        _subscriptions.Add(subscription);
+        Subscriptions.Add(subscription);
         return subscription;
     }
 
     public bool RemoveSubscription(string locationName)
     {
-        var subscription = _subscriptions.FirstOrDefault(s => 
+        var subscription = Subscriptions.FirstOrDefault(s => 
             s.LocationName.Equals(locationName, StringComparison.OrdinalIgnoreCase));
         
-        return subscription != null && _subscriptions.Remove(subscription);
+        return subscription != null && Subscriptions.Remove(subscription);
     }
 
     public List<Subscription> GetSubscriptionsForDailyWeather()
-        => _subscriptions.Where(s => s.SendDailyWeather).ToList();
+        => Subscriptions.Where(s => s.SendDailyWeather).ToList();
 
     public List<Subscription> GetSubscriptionsForEmergencyAlerts()
-        => _subscriptions.Where(s => s.SendEmergencyAlerts).ToList();
+        => Subscriptions.Where(s => s.SendEmergencyAlerts).ToList();
 }
