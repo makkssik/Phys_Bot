@@ -4,6 +4,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Logging;
 using Telegram.Bot;
+using Polly;
+using Polly.Extensions.Http;
 using WeatherBot.Interfaces.Repositories;
 using WeatherBot.Interfaces.Services;
 using WeatherBot.Repositories;
@@ -23,22 +25,21 @@ public class WeatherBotApplication
         _host = Host.CreateDefaultBuilder()
             .ConfigureServices(services =>
             {
-                // Telegram
                 services.AddSingleton<ITelegramBotClient>(new TelegramBotClient(botToken));
                 services.AddSingleton<Bot>();
                 services.AddScoped<CommandHandler>();
                 
-                // Services - ВАЖНО: HttpClient должен быть зарегистрирован
-                services.AddHttpClient(); // Эта строка обязательна
+                var httpClientBuilder = services.AddHttpClient(string.Empty);
+                httpClientBuilder
+                    .AddPolicyHandler(GetRetryPolicy())
+                    .AddPolicyHandler(GetTimeoutPolicy());
                 services.AddScoped<SimpleNotificationService>();
                 services.AddScoped<SubscriptionService>();
                 services.AddScoped<IWeatherService, WeatherService>();
                 services.AddScoped<ILocationService, LocationService>();
                 
-                // Repositories
-                services.AddScoped<IUserRepository, UserRepository>();
+                services.AddScoped<IUserRepository, SqliteUserRepository>();
 
-                // Logging
                 services.AddLogging(builder => 
                     builder.AddConsole().SetMinimumLevel(LogLevel.Information));
             })
@@ -50,7 +51,6 @@ public class WeatherBotApplication
         var bot = _host.Services.GetRequiredService<Bot>();
         var botClient = _host.Services.GetRequiredService<ITelegramBotClient>();
 
-        // Исправляем вызов StartReceiving - убираем pollingErrorHandler
         botClient.StartReceiving(
             updateHandler: async (client, update, token) => await bot.HandleUpdateAsync(update),
             errorHandler: (client, exception, token) => 
@@ -64,9 +64,25 @@ public class WeatherBotApplication
         Console.WriteLine("Bot started!");
         await _host.RunAsync();
     }
+
+    private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
+    {
+        return HttpPolicyExtensions
+            .HandleTransientHttpError()
+            .OrResult(response => (int)response.StatusCode == 429)
+            .WaitAndRetryAsync(
+                retryCount: 3,
+                sleepDurationProvider: attempt =>
+                    TimeSpan.FromSeconds(Math.Pow(2, attempt)) +
+                    TimeSpan.FromMilliseconds(Random.Shared.Next(0, 200)));
+    }
+
+    private static IAsyncPolicy<HttpResponseMessage> GetTimeoutPolicy()
+    {
+        return Policy.TimeoutAsync<HttpResponseMessage>(TimeSpan.FromSeconds(10));
+    }
 }
 
-// Статический класс для простого запуска
 public static class BotRunner
 {
     public static async Task Run(string botToken)
@@ -80,7 +96,6 @@ public static class Program
 {
     public static async Task Main(string[] args)
     {
-        // ⭐⭐⭐ ЗАМЕНИ ЭТУ СТРОКУ НА СВОЙ ТОКЕН БОТА ⭐⭐⭐
         var tokenPath = Path.Combine("WeatherBot", "token.txt");
     string botToken;
 
@@ -99,7 +114,7 @@ public static class Program
         return;
     }
 
-    Console.WriteLine("🤖 Starting Weather Bot...");
-    await BotRunner.Run(botToken);
+        Console.WriteLine("🤖 Starting Weather Bot...");
+        await BotRunner.Run(botToken);
     }
 }

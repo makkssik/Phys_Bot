@@ -23,7 +23,6 @@ public sealed class User
 
     private User() { }
 
-    // Исправленный метод - теперь принимает Coordinate
     public Subscription AddSubscription(string locationName, Coordinate coordinate, bool sendDailyWeather, bool sendEmergencyAlerts)
     {
         if (Subscriptions.Any(s => s.LocationName.Equals(locationName, StringComparison.OrdinalIgnoreCase)))

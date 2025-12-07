@@ -73,7 +73,6 @@ public class WeatherService : IWeatherService
             var json = await response.Content.ReadAsStringAsync();
             _logger.LogDebug("📄 Weather API response: {Json}", json);
 
-            // Используем правильные классы для десериализации
             var weatherResponse = JsonSerializer.Deserialize<OpenMeteoResponse>(json, new JsonSerializerOptions 
             { 
                 PropertyNameCaseInsensitive = true 
@@ -87,11 +86,10 @@ public class WeatherService : IWeatherService
 
             var condition = GetWeatherCondition(weatherResponse.CurrentWeather.WeatherCode);
             
-            // Преобразуем decimal в double для WindSpeed
             var weatherData = new WeatherData(
                 new Temperature(weatherResponse.CurrentWeather.Temperature),
                 condition,
-                (double)weatherResponse.CurrentWeather.WindSpeed, // Явное преобразование decimal -> double
+                (double)weatherResponse.CurrentWeather.WindSpeed,
                 weatherResponse.CurrentWeather.Time
             );
 
@@ -119,7 +117,6 @@ public class WeatherService : IWeatherService
 
     private static WeatherCondition GetWeatherCondition(int weatherCode)
     {
-        // Используем официальные коды погоды от Open-Meteo
         return weatherCode switch
         {
             0 => new WeatherCondition("0", "☀️ Clear sky"),
@@ -154,7 +151,6 @@ public class WeatherService : IWeatherService
         };
     }
 
-    // Классы для десериализации ответа от Open-Meteo API
     private class OpenMeteoResponse
     {
         [JsonPropertyName("current_weather")]

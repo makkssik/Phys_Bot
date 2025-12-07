@@ -25,7 +25,6 @@ public partial class CommandHandler
 
     public async Task HandleStartCommand(long userId, string username)
     {
-        // Автоматически создаем/обновляем пользователя
         var user = await _userRepository.GetUserAsync(userId);
         await _userRepository.UpdateUserAsync(user);
 
@@ -60,7 +59,6 @@ public partial class CommandHandler
         var dailyWeather = args.Contains("daily");
         var emergencyAlerts = args.Contains("emergency");
 
-        // Если не указано ничего - подписываем на всё
         if (!dailyWeather && !emergencyAlerts)
         {
             dailyWeather = true;

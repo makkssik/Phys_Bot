@@ -21,7 +21,6 @@ public sealed class SubscriptionService
         if (coordinate == null)
             return $"❌ Location '{locationName}' not found";
 
-        // Используем GetUserAsync который создаст пользователя если не найден
         var user = await _userRepository.GetUserAsync(userId);
 
         try

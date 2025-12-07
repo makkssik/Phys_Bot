@@ -12,7 +12,6 @@ public class UserRepository : IUserRepository
 
     public UserRepository()
     {
-        // Optionally, load users immediately on construction (for DI, you may want to control timing)
         LoadFromFileAsync(StorageFile).Wait();
     }
 
@@ -28,7 +27,7 @@ public class UserRepository : IUserRepository
         {
             user = new User(userId, $"user_{userId}");
             _users.Add(user);
-            await SaveToFileAsync(StorageFile); // Save after change
+            await SaveToFileAsync(StorageFile);
         }
         return user;
     }
@@ -43,7 +42,7 @@ public class UserRepository : IUserRepository
         if (!_users.Any(u => u.Id == user.Id))
         {
             _users.Add(user);
-            await SaveToFileAsync(StorageFile); // Save after change
+            await SaveToFileAsync(StorageFile);
         }
     }
 
@@ -55,10 +54,9 @@ public class UserRepository : IUserRepository
             _users.Remove(existing);
         }
         _users.Add(user);
-        await SaveToFileAsync(StorageFile); // Save after change
+        await SaveToFileAsync(StorageFile);
     }
 
-    // --- Persistence Methods ---
     public async Task SaveToFileAsync(string filename)
     {
         var json = JsonSerializer.Serialize(_users, new JsonSerializerOptions { WriteIndented = true });

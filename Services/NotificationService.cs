@@ -34,7 +34,6 @@ public sealed class SimpleNotificationService
                 {
                     try
                     {
-                        // Используем сохраненные координаты из подписки
                         var weather = await _weatherService.GetCurrentWeatherAsync(subscription.Coordinate);
                         if (weather != null)
                         {
@@ -55,7 +54,6 @@ public sealed class SimpleNotificationService
                     }
                     catch (Exception ex)
                     {
-                        // Логируем ошибку, но продолжаем для других подписок
                         Console.WriteLine($"Error sending notification to user {user.Id}: {ex.Message}");
                     }
                 }

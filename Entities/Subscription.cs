@@ -15,7 +15,7 @@ public sealed class Subscription
     public string LocationName { get; private set; } = string.Empty;
 
     [JsonInclude]
-    public Coordinate Coordinate { get; private set; } = default!; // Добавляем координаты
+    public Coordinate Coordinate { get; private set; } = default!;
 
     [JsonInclude]
     public DateTime CreatedAt { get; private set; }
@@ -26,14 +26,13 @@ public sealed class Subscription
     [JsonInclude]
     public bool SendEmergencyAlerts { get; private set; }
 
-    // Исправленный конструктор - теперь принимает 5 аргументов
     [JsonConstructor]
     public Subscription(Guid id, long userId, string locationName, Coordinate coordinate, bool sendDailyWeather, bool sendEmergencyAlerts, DateTime createdAt)
     {
         Id = id;
         UserId = userId;
         LocationName = locationName;
-        Coordinate = coordinate; // Сохраняем координаты
+        Coordinate = coordinate;
         SendDailyWeather = sendDailyWeather;
         SendEmergencyAlerts = sendEmergencyAlerts;
         CreatedAt = createdAt;
