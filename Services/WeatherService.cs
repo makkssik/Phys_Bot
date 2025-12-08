@@ -1,5 +1,6 @@
 using WeatherBot.Interfaces.Services;
 using WeatherBot.Entities.ValueObjects;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
@@ -56,8 +57,11 @@ public class WeatherService : IWeatherService
     {
         try
         {
+            var latitude = coordinate.Latitude.ToString(CultureInfo.InvariantCulture);
+            var longitude = coordinate.Longitude.ToString(CultureInfo.InvariantCulture);
+
             var url = $"https://api.open-meteo.com/v1/forecast?" +
-                     $"latitude={coordinate.Latitude}&longitude={coordinate.Longitude}&" +
+                     $"latitude={latitude}&longitude={longitude}&" +
                      $"current_weather=true&temperature_unit=celsius&windspeed_unit=ms&timezone=auto";
 
             _logger.LogDebug("🌐 Weather API URL: {Url}", url);
