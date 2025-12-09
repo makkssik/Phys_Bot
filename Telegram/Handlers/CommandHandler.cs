@@ -1,6 +1,7 @@
 using WeatherBot.Services;
 using Telegram.Bot;
 using WeatherBot.Interfaces.Repositories;
+using Telegram.Bot.Types.ReplyMarkups;
 
 namespace WeatherBot.Telegram.Handlers;
 
@@ -45,6 +46,17 @@ public partial class CommandHandler
         }
 
         await _notificationService.SendWeatherAsync(userId, location);
+
+        var url = $"https://conglobately-unempty-rosio.ngrok-free.dev/?city={Uri.EscapeDataString(location)}";
+
+        var keyboard = new InlineKeyboardMarkup(
+            InlineKeyboardButton.WithUrl(
+                "🌐 Открыть на сайте",
+                url
+            )
+        );
+
+        await SendMessage(userId, "Хочешь посмотреть подробный прогноз на сайте?", keyboard);
     }
 
     public async Task HandleSubscribeCommand(long userId, string[] args)
@@ -87,8 +99,15 @@ public partial class CommandHandler
         await SendMessage(userId, result);
     }
 
-    private async Task SendMessage(long chatId, string message)
+    private async Task SendMessage(long chatId, string message, ReplyMarkup? replyMarkup = null)
     {
-        await _botClient.SendMessage(chatId, message);
+        if (replyMarkup is null)
+        {
+            await _botClient.SendMessage(chatId, message);
+        }
+        else
+        {
+            await _botClient.SendMessage(chatId, message, replyMarkup: replyMarkup);
+        }
     }
 }

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Погода от Telegram-бота</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+</head>
+<body>
+  <div class="aurora-layer"></div>
+  <div id="stars"></div>
+  <div id="stars2"></div>
+  <div id="stars3"></div>
+  <div class="meteors">
+    <div class="shooting-star"></div>
+    <div class="shooting-star"></div>
+    <div class="shooting-star"></div>
+    <div class="shooting-star"></div>
+    <div class="shooting-star"></div>
+    <div class="shooting-star"></div>
+    <div class="shooting-star"></div>
+    <div class="shooting-star"></div>
+    <div class="shooting-star"></div>
+    <div class="shooting-star"></div>
+    <div class="shooting-star"></div>
+    <div class="shooting-star"></div>
+  </div>
+  <div class="container">
+    <header class="header">
+      <h1>Погода</h1>
+    </header>
+
+    <section class="search-section">
+      <form id="search-form">
+        <input
+          type="text"
+          id="city-input"
+          placeholder="Введите город (например, Berlin, Moscow)"
+          required
+        />
+        <button type="submit">Показать погоду</button>
+      </form>
+    </section>
+
+    <section id="status" class="status hidden"></section>
+
+    <section id="weather-section" class="weather hidden">
+      <div id="location-info" class="location-info"></div>
+
+    <div class="forecast-select">
+      <button type="button" data-days="1" class="forecast-btn">1 день</button>
+      <button type="button" data-days="3" class="forecast-btn active">3 дня</button>
+      <button type="button" data-days="7" class="forecast-btn">7 дней</button>
+    </div>    
+
+      <div class="cards">
+        <div class="card current-card dynamic-weather-card">
+
+          <div class="current-top">
+              <img id="current-icon" src="" alt="">
+              <div id="current-condition" class="current-condition">—</div>
+          </div>
+      
+          <div id="current-temp" class="current-temp">—°C</div>
+      
+          <div class="current-details">
+              <div class="detail-item">
+                  <span class="detail-label">Ветер</span>
+                  <span id="current-wind" class="detail-value">— м/с</span>
+              </div>
+      
+              <div class="detail-item">
+                  <span class="detail-label">Обновлено</span>
+                  <span id="current-updated" class="detail-value">—:—</span>
+              </div>
+          </div>
+      
+      </div>
+
+        <div class="card dynamic-weather-card">
+          <h2 id="forecast-title">Прогноз на 3 дня</h2>
+          <div class="card-content" id="forecast-content"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="pastel-blobs">
+    <div class="pastel-blob blob1"></div>
+    <div class="pastel-blob blob2"></div>
+    <div class="pastel-blob blob3"></div>
+  </div>  
+
+  <script src="/static/script.js"></script>
+</body>
+</html>
