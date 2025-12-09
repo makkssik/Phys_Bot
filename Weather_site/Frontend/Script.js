@@ -51,9 +51,14 @@ function weatherCodeToEmoji(code) {
   if (code === 3) return "☁️ Пасмурно";
   if ([45, 48].includes(code)) return "🌫️ Туман";
   if ([51, 53, 55].includes(code)) return "🌦️ Моросящий дождь";
+  if ([56, 57].includes(code)) return "🌧️ Переохлаждённая морось";
   if ([61, 63, 65].includes(code)) return "🌧️ Дождь";
+  if ([66, 67].includes(code)) return "🌧️ Переохлаждённый дождь";
   if ([71, 73, 75].includes(code)) return "❄️ Снег";
-  if (code === 95) return "⛈️ Гроза";
+  if (code === 77) return "❄️ Снегопад";
+  if ([80, 81, 82].includes(code)) return "🌦️ Ливневый дождь";
+  if ([85, 86].includes(code)) return "❄️ Ливневый снег";
+  if ([95, 96, 99].includes(code)) return "⛈️ Гроза";
   return "🌈 Неизвестно";
 }
 
