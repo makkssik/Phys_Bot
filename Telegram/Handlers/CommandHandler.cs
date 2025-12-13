@@ -1,7 +1,7 @@
 using WeatherBot.Services;
 using Telegram.Bot;
-using WeatherBot.Interfaces.Repositories;
 using Telegram.Bot.Types.ReplyMarkups;
+using WeatherBot.Interfaces.Repositories;
 
 namespace WeatherBot.Telegram.Handlers;
 
@@ -27,13 +27,18 @@ public partial class CommandHandler
     public async Task HandleStartCommand(long userId, string username)
     {
         var user = await _userRepository.GetUserAsync(userId);
-        await _userRepository.UpdateUserAsync(user);
+        if (user.Username != username)
+        {
+             await _userRepository.UpdateUserAsync(user);
+        }
 
         await SendMessage(userId, $"👋 Welcome, {username}!\n\n" +
             "Use:\n" +
             "/weather <city> - get current weather\n" +
-            "/subscribe <city> - subscribe to weather updates\n" +
+            "/subscribe <city> [daily] [emergency] - subscribe\n" +
             "/subscriptions - view your subscriptions\n" +
+            "/togglealert <city> - on/off emergency alerts\n" +
+            "/checkalerts - manual check (admin)\n" +
             "/unsubscribe <city> - remove subscription");
     }
 
@@ -48,33 +53,52 @@ public partial class CommandHandler
         await _notificationService.SendWeatherAsync(userId, location);
 
         var url = $"https://conglobately-unempty-rosio.ngrok-free.dev/?city={Uri.EscapeDataString(location)}";
-
         var keyboard = new InlineKeyboardMarkup(
-            InlineKeyboardButton.WithUrl(
-                "🌐 Открыть на сайте",
-                url
-            )
+            InlineKeyboardButton.WithUrl("🌐 Открыть на сайте", url)
         );
 
         await SendMessage(userId, "Хочешь посмотреть подробный прогноз на сайте?", keyboard);
     }
 
-    public async Task HandleSubscribeCommand(long userId, string[] args)
+    public async Task HandleSubscribeCommand(long userId, string argsString)
     {
-        if (args.Length < 1)
+        if (string.IsNullOrWhiteSpace(argsString))
         {
             await SendMessage(userId, "Usage: /subscribe <city> [daily] [emergency]");
             return;
         }
-
-        var locationName = args[0];
-        var dailyWeather = args.Contains("daily");
-        var emergencyAlerts = args.Contains("emergency");
-
+        
+        var parts = argsString.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+        bool dailyWeather = false;
+        bool emergencyAlerts = false;
+        
+        for (int i = parts.Count - 1; i >= 0; i--)
+        {
+            var part = parts[i].ToLower();
+            if (part == "daily")
+            {
+                dailyWeather = true;
+                parts.RemoveAt(i);
+            }
+            else if (part == "emergency")
+            {
+                emergencyAlerts = true;
+                parts.RemoveAt(i);
+            }
+        }
+        
         if (!dailyWeather && !emergencyAlerts)
         {
             dailyWeather = true;
             emergencyAlerts = true;
+        }
+        
+        var locationName = string.Join(" ", parts);
+
+        if (string.IsNullOrWhiteSpace(locationName))
+        {
+            await SendMessage(userId, "❌ Could not parse city name.");
+            return;
         }
 
         var result = await _subscriptionService.SubscribeAsync(userId, locationName, dailyWeather, emergencyAlerts);
@@ -99,15 +123,48 @@ public partial class CommandHandler
         await SendMessage(userId, result);
     }
 
+    public async Task HandleManualAlertCheck(long userId)
+    {
+        await SendMessage(userId, "🔄 Triggering alert check...");
+        await _notificationService.CheckAndSendAlertsAsync();
+        await SendMessage(userId, "✅ Alert check completed.");
+    }
+
+    public async Task HandleToggleAlerts(long userId, string locationName)
+    {
+        if (string.IsNullOrWhiteSpace(locationName))
+        {
+            await SendMessage(userId, "Usage: /togglealert <city>");
+            return;
+        }
+
+        var user = await _userRepository.GetUserAsync(userId);
+        var sub = user.Subscriptions.FirstOrDefault(s => s.LocationName.Equals(locationName, StringComparison.OrdinalIgnoreCase));
+
+        if (sub == null)
+        {
+            await SendMessage(userId, $"❌ Subscription for {locationName} not found.");
+            return;
+        }
+
+        bool newState = !sub.SendEmergencyAlerts;
+        sub.UpdateSettings(sub.SendDailyWeather, newState);
+
+        await _userRepository.UpdateUserAsync(user);
+
+        var status = newState ? "ON 🔔" : "OFF 🔕";
+        await SendMessage(userId, $"✅ Emergency alerts for {locationName} are now {status}");
+    }
+
     private async Task SendMessage(long chatId, string message, ReplyMarkup? replyMarkup = null)
     {
-        if (replyMarkup is null)
-        {
-            await _botClient.SendMessage(chatId, message);
-        }
-        else
+        try 
         {
             await _botClient.SendMessage(chatId, message, replyMarkup: replyMarkup);
+        }
+        catch (Exception ex)
+        {
+             Console.WriteLine($"Error sending message to {chatId}: {ex.Message}");
         }
     }
 }

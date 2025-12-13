@@ -1,9 +1,10 @@
-using WeatherBot.Interfaces.Services;
-using WeatherBot.Entities.ValueObjects;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Microsoft.Extensions.Logging;
+using WeatherBot.Entities.ValueObjects;
+using WeatherBot.Interfaces.Services;
 
 namespace WeatherBot.Services;
 
@@ -12,48 +13,95 @@ public class WeatherService : IWeatherService
     private readonly HttpClient _httpClient;
     private readonly ILogger<WeatherService> _logger;
     private readonly ILocationService _locationService;
+    private readonly IMemoryCache _cache;
 
-    public WeatherService(HttpClient httpClient, ILogger<WeatherService> logger, ILocationService locationService)
+    public WeatherService(
+        HttpClient httpClient, 
+        ILogger<WeatherService> logger, 
+        ILocationService locationService,
+        IMemoryCache cache)
     {
         _httpClient = httpClient;
         _logger = logger;
         _locationService = locationService;
+        _cache = cache;
     }
 
     public async Task<WeatherData?> GetCurrentWeatherAsync(string locationName)
     {
-        if (string.IsNullOrWhiteSpace(locationName))
-        {
-            _logger.LogWarning("Location name is empty");
-            return null;
-        }
+        var coordinate = await _locationService.FindCoordinateAsync(locationName);
+        if (coordinate == null) return null;
 
-        try
-        {
-            _logger.LogInformation("🌤️ Getting weather for: {LocationName}", locationName);
-
-            var coordinate = await _locationService.FindCoordinateAsync(locationName);
-            if (coordinate == null)
-            {
-                _logger.LogWarning("❌ Cannot get weather without coordinates for: {LocationName}", locationName);
-                return null;
-            }
-
-            return await GetWeatherFromApi(coordinate);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "❌ Error getting weather for: {LocationName}", locationName);
-            return null;
-        }
+        return await GetCurrentWeatherAsync(coordinate);
     }
 
     public async Task<WeatherData?> GetCurrentWeatherAsync(Coordinate coordinate)
     {
-        return await GetWeatherFromApi(coordinate);
+        string cacheKey = $"weather_{coordinate.Latitude}_{coordinate.Longitude}";
+        
+        if (_cache.TryGetValue(cacheKey, out WeatherData? cachedWeather))
+        {
+            return cachedWeather;
+        }
+
+        var weather = await FetchWeatherFromApi(coordinate);
+        if (weather != null)
+        {
+            _cache.Set(cacheKey, weather, TimeSpan.FromMinutes(15));
+        }
+        return weather;
     }
 
-    private async Task<WeatherData?> GetWeatherFromApi(Coordinate coordinate)
+    public async Task<List<WeatherAlert>> GetAlertsAsync(string locationName)
+    {
+        var coordinate = await _locationService.FindCoordinateAsync(locationName);
+        if (coordinate == null) return new List<WeatherAlert>();
+
+        string cacheKey = $"alerts_{locationName.ToLowerInvariant()}";
+        if (_cache.TryGetValue(cacheKey, out List<WeatherAlert>? cachedAlerts))
+        {
+            return cachedAlerts ?? new List<WeatherAlert>();
+        }
+
+        try
+        {
+            var lat = coordinate.Latitude.ToString(CultureInfo.InvariantCulture);
+            var lon = coordinate.Longitude.ToString(CultureInfo.InvariantCulture);
+            
+            var url = $"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&alerts=yes&forecast_days=1";
+
+            var response = await _httpClient.GetAsync(url);
+            if (!response.IsSuccessStatusCode) return new List<WeatherAlert>();
+
+            var json = await response.Content.ReadAsStringAsync();
+            var omData = JsonSerializer.Deserialize<OpenMeteoAlertResponse>(json);
+
+            var alerts = new List<WeatherAlert>();
+            if (omData?.Alerts != null)
+            {
+                foreach (var omAlert in omData.Alerts)
+                {
+                    alerts.Add(new WeatherAlert(
+                        Headline: omAlert.Event,
+                        Severity: "Unknown",
+                        Event: omAlert.Event,
+                        Description: omAlert.Description,
+                        Instruction: "" 
+                    ));
+                }
+            }
+
+            _cache.Set(cacheKey, alerts, TimeSpan.FromMinutes(10));
+            return alerts;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get alerts for {Location}", locationName);
+            return new List<WeatherAlert>();
+        }
+    }
+
+    private async Task<WeatherData?> FetchWeatherFromApi(Coordinate coordinate)
     {
         try
         {
@@ -64,57 +112,29 @@ public class WeatherService : IWeatherService
                      $"latitude={latitude}&longitude={longitude}&" +
                      $"current_weather=true&temperature_unit=celsius&windspeed_unit=ms&timezone=auto";
 
-            _logger.LogDebug("🌐 Weather API URL: {Url}", url);
-
             var response = await _httpClient.GetAsync(url);
-            
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogError("❌ Weather API returned status: {StatusCode}", response.StatusCode);
-                return null;
-            }
+            if (!response.IsSuccessStatusCode) return null;
 
             var json = await response.Content.ReadAsStringAsync();
-            _logger.LogDebug("📄 Weather API response: {Json}", json);
-
             var weatherResponse = JsonSerializer.Deserialize<OpenMeteoResponse>(json, new JsonSerializerOptions 
             { 
                 PropertyNameCaseInsensitive = true 
             });
 
-            if (weatherResponse?.CurrentWeather == null)
-            {
-                _logger.LogWarning("❌ No current_weather data in API response");
-                return null;
-            }
+            if (weatherResponse?.CurrentWeather == null) return null;
 
             var condition = GetWeatherCondition(weatherResponse.CurrentWeather.WeatherCode);
             
-            var weatherData = new WeatherData(
+            return new WeatherData(
                 new Temperature(weatherResponse.CurrentWeather.Temperature),
                 condition,
                 (double)weatherResponse.CurrentWeather.WindSpeed,
                 weatherResponse.CurrentWeather.Time
             );
-
-            _logger.LogInformation("✅ Weather data retrieved: {Temp}°C, {Condition}", 
-                weatherResponse.CurrentWeather.Temperature, condition.Description);
-
-            return weatherData;
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "❌ Network error while getting weather data");
-            return null;
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogError(ex, "❌ JSON parsing error for weather data");
-            return null;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "❌ Unexpected error getting weather data");
+            _logger.LogError(ex, "Error getting Open-Meteo data");
             return null;
         }
     }
@@ -132,26 +152,19 @@ public class WeatherService : IWeatherService
             51 => new WeatherCondition("51", "🌧️ Light drizzle"),
             53 => new WeatherCondition("53", "🌧️ Moderate drizzle"),
             55 => new WeatherCondition("55", "🌧️ Dense drizzle"),
-            56 => new WeatherCondition("56", "🌧️ Light freezing drizzle"),
-            57 => new WeatherCondition("57", "🌧️ Dense freezing drizzle"),
             61 => new WeatherCondition("61", "🌧️ Slight rain"),
             63 => new WeatherCondition("63", "🌧️ Moderate rain"),
             65 => new WeatherCondition("65", "🌧️ Heavy rain"),
-            66 => new WeatherCondition("66", "🌧️ Light freezing rain"),
-            67 => new WeatherCondition("67", "🌧️ Heavy freezing rain"),
             71 => new WeatherCondition("71", "🌨️ Slight snow fall"),
             73 => new WeatherCondition("73", "🌨️ Moderate snow fall"),
             75 => new WeatherCondition("75", "🌨️ Heavy snow fall"),
-            77 => new WeatherCondition("77", "🌨️ Snow grains"),
             80 => new WeatherCondition("80", "🌦️ Slight rain showers"),
             81 => new WeatherCondition("81", "🌦️ Moderate rain showers"),
             82 => new WeatherCondition("82", "🌦️ Violent rain showers"),
-            85 => new WeatherCondition("85", "🌨️ Slight snow showers"),
-            86 => new WeatherCondition("86", "🌨️ Heavy snow showers"),
             95 => new WeatherCondition("95", "⛈️ Thunderstorm"),
-            96 => new WeatherCondition("96", "⛈️ Thunderstorm with slight hail"),
+            96 => new WeatherCondition("96", "⛈️ Thunderstorm with hail"),
             99 => new WeatherCondition("99", "⛈️ Thunderstorm with heavy hail"),
-            _ => new WeatherCondition(weatherCode.ToString(), "❓ Unknown weather condition")
+            _ => new WeatherCondition(weatherCode.ToString(), "❓ Unknown condition")
         };
     }
 
@@ -174,5 +187,23 @@ public class WeatherService : IWeatherService
         
         [JsonPropertyName("time")]
         public DateTime Time { get; set; }
+    }
+
+    private class OpenMeteoAlertResponse
+    {
+        [JsonPropertyName("alerts")]
+        public List<OpenMeteoAlertItem>? Alerts { get; set; }
+    }
+
+    private class OpenMeteoAlertItem
+    {
+        [JsonPropertyName("event")]
+        public string Event { get; set; } = "";
+        
+        [JsonPropertyName("description")]
+        public string Description { get; set; } = "";
+        
+        [JsonPropertyName("sender_name")]
+        public string SenderName { get; set; } = "";
     }
 }
