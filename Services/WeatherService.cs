@@ -1,9 +1,10 @@
-using WeatherBot.Interfaces.Services;
-using WeatherBot.Entities.ValueObjects;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Microsoft.Extensions.Logging;
+using WeatherBot.Entities.ValueObjects;
+using WeatherBot.Interfaces.Services;
 
 namespace WeatherBot.Services;
 
@@ -12,71 +13,95 @@ public class WeatherService : IWeatherService
     private readonly HttpClient _httpClient;
     private readonly ILogger<WeatherService> _logger;
     private readonly ILocationService _locationService;
+    private readonly IMemoryCache _cache;
 
-    private const string ApiKey = "9ac9f622f4c04980947184305251312"; 
-
-    public WeatherService(HttpClient httpClient, ILogger<WeatherService> logger, ILocationService locationService)
+    public WeatherService(
+        HttpClient httpClient, 
+        ILogger<WeatherService> logger, 
+        ILocationService locationService,
+        IMemoryCache cache)
     {
         _httpClient = httpClient;
         _logger = logger;
         _locationService = locationService;
+        _cache = cache;
     }
 
     public async Task<WeatherData?> GetCurrentWeatherAsync(string locationName)
     {
-        if (string.IsNullOrWhiteSpace(locationName)) return null;
+        var coordinate = await _locationService.FindCoordinateAsync(locationName);
+        if (coordinate == null) return null;
 
-        try
-        {
-            var coordinate = await _locationService.FindCoordinateAsync(locationName);
-            if (coordinate == null) return null;
-
-            return await GetWeatherFromApi(coordinate);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting weather for: {LocationName}", locationName);
-            return null;
-        }
+        return await GetCurrentWeatherAsync(coordinate);
     }
 
     public async Task<WeatherData?> GetCurrentWeatherAsync(Coordinate coordinate)
     {
-        return await GetWeatherFromApi(coordinate);
+        string cacheKey = $"weather_{coordinate.Latitude}_{coordinate.Longitude}";
+        
+        if (_cache.TryGetValue(cacheKey, out WeatherData? cachedWeather))
+        {
+            return cachedWeather;
+        }
+
+        var weather = await FetchWeatherFromApi(coordinate);
+        if (weather != null)
+        {
+            _cache.Set(cacheKey, weather, TimeSpan.FromMinutes(15));
+        }
+        return weather;
     }
 
     public async Task<List<WeatherAlert>> GetAlertsAsync(string locationName)
     {
-        if (string.IsNullOrWhiteSpace(ApiKey) || ApiKey.Contains("ВСТАВЬ"))
-        {
-            _logger.LogError("❌ WeatherAPI Key is missing!");
-            return new List<WeatherAlert>();
-        }
+        var coordinate = await _locationService.FindCoordinateAsync(locationName);
+        if (coordinate == null) return new List<WeatherAlert>();
 
-        var url = $"http://api.weatherapi.com/v1/forecast.json?key={ApiKey}&q={locationName}&days=1&aqi=no&alerts=yes";
+        string cacheKey = $"alerts_{locationName.ToLowerInvariant()}";
+        if (_cache.TryGetValue(cacheKey, out List<WeatherAlert>? cachedAlerts))
+        {
+            return cachedAlerts ?? new List<WeatherAlert>();
+        }
 
         try
         {
+            var lat = coordinate.Latitude.ToString(CultureInfo.InvariantCulture);
+            var lon = coordinate.Longitude.ToString(CultureInfo.InvariantCulture);
+            
+            var url = $"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&alerts=yes&forecast_days=1";
+
             var response = await _httpClient.GetAsync(url);
-            if (!response.IsSuccessStatusCode)
-            {
-                _logger.LogWarning("⚠️ WeatherAPI returned {Status}", response.StatusCode);
-                return new List<WeatherAlert>();
-            }
+            if (!response.IsSuccessStatusCode) return new List<WeatherAlert>();
 
             var json = await response.Content.ReadAsStringAsync();
-            var data = JsonSerializer.Deserialize<WeatherApiResponse>(json);
+            var omData = JsonSerializer.Deserialize<OpenMeteoAlertResponse>(json);
 
-            return data?.Alerts?.AlertList ?? new List<WeatherAlert>();
+            var alerts = new List<WeatherAlert>();
+            if (omData?.Alerts != null)
+            {
+                foreach (var omAlert in omData.Alerts)
+                {
+                    alerts.Add(new WeatherAlert(
+                        Headline: omAlert.Event,
+                        Severity: "Unknown",
+                        Event: omAlert.Event,
+                        Description: omAlert.Description,
+                        Instruction: "" 
+                    ));
+                }
+            }
+
+            _cache.Set(cacheKey, alerts, TimeSpan.FromMinutes(10));
+            return alerts;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "❌ Error fetching alerts for {Location}", locationName);
+            _logger.LogError(ex, "Failed to get alerts for {Location}", locationName);
             return new List<WeatherAlert>();
         }
     }
 
-    private async Task<WeatherData?> GetWeatherFromApi(Coordinate coordinate)
+    private async Task<WeatherData?> FetchWeatherFromApi(Coordinate coordinate)
     {
         try
         {
@@ -162,5 +187,23 @@ public class WeatherService : IWeatherService
         
         [JsonPropertyName("time")]
         public DateTime Time { get; set; }
+    }
+
+    private class OpenMeteoAlertResponse
+    {
+        [JsonPropertyName("alerts")]
+        public List<OpenMeteoAlertItem>? Alerts { get; set; }
+    }
+
+    private class OpenMeteoAlertItem
+    {
+        [JsonPropertyName("event")]
+        public string Event { get; set; } = "";
+        
+        [JsonPropertyName("description")]
+        public string Description { get; set; } = "";
+        
+        [JsonPropertyName("sender_name")]
+        public string SenderName { get; set; } = "";
     }
 }

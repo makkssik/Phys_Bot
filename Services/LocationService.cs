@@ -1,8 +1,8 @@
-using WeatherBot.Interfaces.Services;
-using WeatherBot.Entities.ValueObjects;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
+using WeatherBot.Entities.ValueObjects;
+using WeatherBot.Interfaces.Services;
 
 namespace WeatherBot.Services;
 
@@ -10,51 +10,43 @@ public class LocationService : ILocationService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<LocationService> _logger;
+    private readonly IMemoryCache _cache;
 
-    public LocationService(HttpClient httpClient, ILogger<LocationService> logger)
+    public LocationService(HttpClient httpClient, ILogger<LocationService> logger, IMemoryCache cache)
     {
         _httpClient = httpClient;
         _logger = logger;
+        _cache = cache;
     }
 
     public async Task<Coordinate?> FindCoordinateAsync(string locationName)
     {
-        if (string.IsNullOrWhiteSpace(locationName))
+        if (string.IsNullOrWhiteSpace(locationName)) return null;
+
+        var cacheKey = $"geo_{locationName.ToLowerInvariant()}";
+
+        if (_cache.TryGetValue(cacheKey, out Coordinate? cachedCoordinate))
         {
-            _logger.LogWarning("Location name is empty");
-            return null;
+            return cachedCoordinate;
         }
 
         try
         {
-            _logger.LogInformation("🔍 Searching coordinates for: {LocationName}", locationName);
-
-            // Try the requested spelling, then a space-normalized variant (handles cases like "Saint-Petersburg")
             var searchVariants = new[]
             {
                 locationName,
                 locationName.Replace("-", " "),
             }.Distinct(StringComparer.OrdinalIgnoreCase);
 
-            HttpResponseMessage? response = null;
-            GeocodingResponse? geocodingData = null;
-
             foreach (var variant in searchVariants)
             {
                 var url = $"https://geocoding-api.open-meteo.com/v1/search?name={Uri.EscapeDataString(variant)}&count=1&format=json";
-                _logger.LogDebug("📍 Geocoding variant: {Variant}", variant);
 
-                response = await _httpClient.GetAsync(url);
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logger.LogError("❌ Geocoding API returned status: {StatusCode} for variant {Variant}", response.StatusCode, variant);
-                    continue;
-                }
+                var response = await _httpClient.GetAsync(url);
+                if (!response.IsSuccessStatusCode) continue;
 
                 var json = await response.Content.ReadAsStringAsync();
-                _logger.LogDebug("📄 Geocoding API response: {Json}", json);
-
-                geocodingData = JsonSerializer.Deserialize<GeocodingResponse>(json, new JsonSerializerOptions
+                var geocodingData = JsonSerializer.Deserialize<GeocodingResponse>(json, new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true
                 });
@@ -62,28 +54,18 @@ public class LocationService : ILocationService
                 if (geocodingData?.Results?.Any() == true)
                 {
                     var location = geocodingData.Results.First();
-                    _logger.LogInformation("✅ Found coordinates: {LocationName} -> {Lat}, {Lon}",
-                        variant, location.Latitude, location.Longitude);
-                    return new Coordinate(location.Latitude, location.Longitude);
+                    var coordinate = new Coordinate(location.Latitude, location.Longitude);
+
+                    _cache.Set(cacheKey, coordinate, TimeSpan.FromHours(24));
+                    return coordinate;
                 }
             }
             
-            _logger.LogWarning("❌ No coordinates found for: {LocationName}", locationName);
-            return null;
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "❌ Network error while searching coordinates for: {LocationName}", locationName);
-            return null;
-        }
-        catch (JsonException ex)
-        {
-            _logger.LogError(ex, "❌ JSON parsing error for location: {LocationName}", locationName);
             return null;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "❌ Unexpected error finding coordinates for: {LocationName}", locationName);
+            _logger.LogError(ex, "Error finding coordinates for: {LocationName}", locationName);
             return null;
         }
     }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
 using WeatherBot.Entities;
 using WeatherBot.Entities.ValueObjects;
 using WeatherBot.Interfaces.Repositories;
@@ -9,16 +10,56 @@ namespace WeatherBot.Repositories;
 public sealed class SqliteUserRepository : IUserRepository
 {
     private readonly string _connectionString;
+    private readonly ILogger<SqliteUserRepository> _logger;
 
-    public SqliteUserRepository(string databasePath = "users.db")
+    public SqliteUserRepository(ILogger<SqliteUserRepository> logger, string databasePath = "users.db")
     {
+        _logger = logger;
         var builder = new SqliteConnectionStringBuilder
         {
             DataSource = databasePath
         };
 
         _connectionString = builder.ToString();
-        InitializeAsync().GetAwaiter().GetResult();
+    }
+
+    public async Task InitializeDatabaseAsync()
+    {
+        try
+        {
+            await using var connection = new SqliteConnection(_connectionString);
+            await connection.OpenAsync();
+            await EnableForeignKeysAsync(connection);
+
+            var command = connection.CreateCommand();
+            command.CommandText =
+                """
+                PRAGMA foreign_keys = ON;
+                CREATE TABLE IF NOT EXISTS Users (
+                    Id INTEGER PRIMARY KEY,
+                    Username TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS Subscriptions (
+                    Id TEXT PRIMARY KEY,
+                    UserId INTEGER NOT NULL,
+                    LocationName TEXT NOT NULL,
+                    Latitude REAL NOT NULL,
+                    Longitude REAL NOT NULL,
+                    CreatedAt TEXT NOT NULL,
+                    SendDailyWeather INTEGER NOT NULL,
+                    SendEmergencyAlerts INTEGER NOT NULL,
+                    FOREIGN KEY(UserId) REFERENCES Users(Id) ON DELETE CASCADE
+                );
+                """;
+
+            await command.ExecuteNonQueryAsync();
+            _logger.LogInformation("Database initialized successfully.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogCritical(ex, "Database initialization failed!");
+            throw;
+        }
     }
 
     public async Task<User?> FindUserAsync(long userId)
@@ -49,13 +90,13 @@ public sealed class SqliteUserRepository : IUserRepository
 
         var command = connection.CreateCommand();
         command.CommandText =
-        """
-        SELECT u.Id, u.Username,
-               s.Id, s.LocationName, s.Latitude, s.Longitude, s.CreatedAt, s.SendDailyWeather, s.SendEmergencyAlerts
-        FROM Users u
-        LEFT JOIN Subscriptions s ON s.UserId = u.Id
-        ORDER BY u.Id;
-        """;
+            """
+            SELECT u.Id, u.Username,
+                   s.Id, s.LocationName, s.Latitude, s.Longitude, s.CreatedAt, s.SendDailyWeather, s.SendEmergencyAlerts
+            FROM Users u
+            LEFT JOIN Subscriptions s ON s.UserId = u.Id
+            ORDER BY u.Id;
+            """;
 
         var users = new Dictionary<long, User>();
 
@@ -78,7 +119,8 @@ public sealed class SqliteUserRepository : IUserRepository
             var locationName = reader.GetString(3);
             var latitude = reader.GetDouble(4);
             var longitude = reader.GetDouble(5);
-            var createdAt = DateTime.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+            var createdAt = DateTime.Parse(reader.GetString(6), CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind);
             var sendDailyWeather = reader.GetInt32(7) == 1;
             var sendEmergencyAlerts = reader.GetInt32(8) == 1;
 
@@ -121,11 +163,11 @@ public sealed class SqliteUserRepository : IUserRepository
         var upsertUser = connection.CreateCommand();
         upsertUser.Transaction = sqliteTransaction;
         upsertUser.CommandText =
-        """
-        INSERT INTO Users (Id, Username)
-        VALUES ($id, $username)
-        ON CONFLICT(Id) DO UPDATE SET Username = excluded.Username;
-        """;
+            """
+            INSERT INTO Users (Id, Username)
+            VALUES ($id, $username)
+            ON CONFLICT(Id) DO UPDATE SET Username = excluded.Username;
+            """;
         upsertUser.Parameters.AddWithValue("$id", user.Id);
         upsertUser.Parameters.AddWithValue("$username", user.Username);
 
@@ -142,17 +184,18 @@ public sealed class SqliteUserRepository : IUserRepository
             var insertSubscription = connection.CreateCommand();
             insertSubscription.Transaction = sqliteTransaction;
             insertSubscription.CommandText =
-            """
-            INSERT INTO Subscriptions (Id, UserId, LocationName, Latitude, Longitude, CreatedAt, SendDailyWeather, SendEmergencyAlerts)
-            VALUES ($id, $userId, $locationName, $latitude, $longitude, $createdAt, $sendDaily, $sendEmergency);
-            """;
+                """
+                INSERT INTO Subscriptions (Id, UserId, LocationName, Latitude, Longitude, CreatedAt, SendDailyWeather, SendEmergencyAlerts)
+                VALUES ($id, $userId, $locationName, $latitude, $longitude, $createdAt, $sendDaily, $sendEmergency);
+                """;
 
             insertSubscription.Parameters.AddWithValue("$id", subscription.Id.ToString());
             insertSubscription.Parameters.AddWithValue("$userId", user.Id);
             insertSubscription.Parameters.AddWithValue("$locationName", subscription.LocationName);
             insertSubscription.Parameters.AddWithValue("$latitude", subscription.Coordinate.Latitude);
             insertSubscription.Parameters.AddWithValue("$longitude", subscription.Coordinate.Longitude);
-            insertSubscription.Parameters.AddWithValue("$createdAt", subscription.CreatedAt.ToString("O", CultureInfo.InvariantCulture));
+            insertSubscription.Parameters.AddWithValue("$createdAt",
+                subscription.CreatedAt.ToString("O", CultureInfo.InvariantCulture));
             insertSubscription.Parameters.AddWithValue("$sendDaily", subscription.SendDailyWeather ? 1 : 0);
             insertSubscription.Parameters.AddWithValue("$sendEmergency", subscription.SendEmergencyAlerts ? 1 : 0);
 
@@ -177,11 +220,11 @@ public sealed class SqliteUserRepository : IUserRepository
 
         var subscriptionsCommand = connection.CreateCommand();
         subscriptionsCommand.CommandText =
-        """
-        SELECT Id, LocationName, Latitude, Longitude, CreatedAt, SendDailyWeather, SendEmergencyAlerts
-        FROM Subscriptions
-        WHERE UserId = $userId;
-        """;
+            """
+            SELECT Id, LocationName, Latitude, Longitude, CreatedAt, SendDailyWeather, SendEmergencyAlerts
+            FROM Subscriptions
+            WHERE UserId = $userId;
+            """;
         subscriptionsCommand.Parameters.AddWithValue("$userId", userId);
 
         await using var subsReader = await subscriptionsCommand.ExecuteReaderAsync();
@@ -191,7 +234,8 @@ public sealed class SqliteUserRepository : IUserRepository
             var locationName = subsReader.GetString(1);
             var latitude = subsReader.GetDouble(2);
             var longitude = subsReader.GetDouble(3);
-            var createdAt = DateTime.Parse(subsReader.GetString(4), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+            var createdAt = DateTime.Parse(subsReader.GetString(4), CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind);
             var sendDailyWeather = subsReader.GetInt32(5) == 1;
             var sendEmergencyAlerts = subsReader.GetInt32(6) == 1;
 
@@ -208,36 +252,6 @@ public sealed class SqliteUserRepository : IUserRepository
         }
 
         return user;
-    }
-
-    private async Task InitializeAsync()
-    {
-        await using var connection = new SqliteConnection(_connectionString);
-        await connection.OpenAsync();
-        await EnableForeignKeysAsync(connection);
-
-        var command = connection.CreateCommand();
-        command.CommandText =
-        """
-        PRAGMA foreign_keys = ON;
-        CREATE TABLE IF NOT EXISTS Users (
-            Id INTEGER PRIMARY KEY,
-            Username TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS Subscriptions (
-            Id TEXT PRIMARY KEY,
-            UserId INTEGER NOT NULL,
-            LocationName TEXT NOT NULL,
-            Latitude REAL NOT NULL,
-            Longitude REAL NOT NULL,
-            CreatedAt TEXT NOT NULL,
-            SendDailyWeather INTEGER NOT NULL,
-            SendEmergencyAlerts INTEGER NOT NULL,
-            FOREIGN KEY(UserId) REFERENCES Users(Id) ON DELETE CASCADE
-        );
-        """;
-
-        await command.ExecuteNonQueryAsync();
     }
 
     private static async Task EnableForeignKeysAsync(SqliteConnection connection)

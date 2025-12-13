@@ -53,6 +53,15 @@ public class Bot
                     await _commandHandler.HandleSubscriptionsCommand(chatId);
                     break;
 
+                case "/checkalerts":
+                    await _commandHandler.HandleManualAlertCheck(chatId);
+                    break;
+
+                case "/togglealert":
+                    var toggleLoc = args.Length > 1 ? args[1] : "";
+                    await _commandHandler.HandleToggleAlerts(chatId, toggleLoc);
+                    break;
+
                 default:
                     await _commandHandler.HandleStartCommand(chatId, username);
                     break;

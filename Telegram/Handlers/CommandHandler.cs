@@ -34,6 +34,8 @@ public partial class CommandHandler
             "/weather <city> - get current weather\n" +
             "/subscribe <city> - subscribe to weather updates\n" +
             "/subscriptions - view your subscriptions\n" +
+            "/togglealert <city> - on/off emergency alerts\n" +
+            "/checkalerts - manual check (admin)\n" +
             "/unsubscribe <city> - remove subscription");
     }
 
@@ -97,6 +99,39 @@ public partial class CommandHandler
     {
         var result = await _subscriptionService.ListSubscriptionsAsync(userId);
         await SendMessage(userId, result);
+    }
+
+    public async Task HandleManualAlertCheck(long userId)
+    {
+        await SendMessage(userId, "🔄 Triggering alert check...");
+        await _notificationService.CheckAndSendAlertsAsync();
+        await SendMessage(userId, "✅ Alert check completed.");
+    }
+
+    public async Task HandleToggleAlerts(long userId, string locationName)
+    {
+        if (string.IsNullOrWhiteSpace(locationName))
+        {
+            await SendMessage(userId, "Usage: /togglealert <city>");
+            return;
+        }
+
+        var user = await _userRepository.GetUserAsync(userId);
+        var sub = user.Subscriptions.FirstOrDefault(s => s.LocationName.Equals(locationName, StringComparison.OrdinalIgnoreCase));
+
+        if (sub == null)
+        {
+            await SendMessage(userId, $"❌ Subscription for {locationName} not found.");
+            return;
+        }
+
+        bool newState = !sub.SendEmergencyAlerts;
+        sub.UpdateSettings(sub.SendDailyWeather, newState);
+
+        await _userRepository.UpdateUserAsync(user);
+
+        var status = newState ? "ON 🔔" : "OFF 🔕";
+        await SendMessage(userId, $"✅ Emergency alerts for {locationName} are now {status}");
     }
 
     private async Task SendMessage(long chatId, string message, ReplyMarkup? replyMarkup = null)

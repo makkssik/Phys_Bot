@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -10,7 +11,7 @@ using WeatherBot.Repositories;
 using WeatherBot.Services;
 using WeatherBot.Telegram;
 using WeatherBot.Telegram.Handlers;
-using WeatherBot.Workers; 
+using WeatherBot.Workers;
 
 namespace WeatherBot;
 
@@ -23,6 +24,8 @@ public class WeatherBotApplication
         _host = Host.CreateDefaultBuilder()
             .ConfigureServices(services =>
             {
+                services.AddMemoryCache();
+
                 services.AddSingleton<ITelegramBotClient>(new TelegramBotClient(botToken));
                 services.AddSingleton<Bot>();
                 services.AddScoped<CommandHandler>();
@@ -34,23 +37,53 @@ public class WeatherBotApplication
 
                 services.AddScoped<SimpleNotificationService>();
                 services.AddScoped<SubscriptionService>();
+                
                 services.AddScoped<IWeatherService, WeatherService>();
                 services.AddScoped<ILocationService, LocationService>();
                 
-                services.AddScoped<IUserRepository, SqliteUserRepository>();
+                services.AddScoped<SqliteUserRepository>();
+                services.AddScoped<IUserRepository>(provider => provider.GetRequiredService<SqliteUserRepository>());
 
-                services.AddHostedService<AlertWorker>();
+                services.AddHostedService<UnifiedNotificationWorker>();
 
                 services.AddLogging(builder => 
-                    builder.AddConsole().SetMinimumLevel(LogLevel.Information));
+                {
+                    builder.AddConsole();
+                    builder.SetMinimumLevel(LogLevel.Information);
+                });
             })
             .Build();
     }
 
     public async Task RunAsync()
     {
+        using (var scope = _host.Services.CreateScope())
+        {
+            var logger = scope.ServiceProvider.GetRequiredService<ILogger<WeatherBotApplication>>();
+            try 
+            {
+                logger.LogInformation("Initializing Database...");
+                var repo = scope.ServiceProvider.GetRequiredService<SqliteUserRepository>();
+                await repo.InitializeDatabaseAsync();
+            }
+            catch (Exception ex)
+            {
+                logger.LogCritical(ex, "Critical Error during DB init. Shutting down.");
+                return;
+            }
+        }
+
         var bot = _host.Services.GetRequiredService<Bot>();
         var botClient = _host.Services.GetRequiredService<ITelegramBotClient>();
+        
+        try 
+        {
+            await botClient.DeleteWebhook(dropPendingUpdates: true);
+        }
+        catch 
+        {
+            try { await botClient.SetWebhook(""); } catch { }
+        }
 
         botClient.StartReceiving(
             updateHandler: async (client, update, token) => await bot.HandleUpdateAsync(update),
@@ -67,31 +100,14 @@ public class WeatherBotApplication
         await _host.RunAsync();
     }
 
-    private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
-    {
-        return HttpPolicyExtensions
+    private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy() =>
+        HttpPolicyExtensions
             .HandleTransientHttpError()
-            .OrResult(response => (int)response.StatusCode == 429)
-            .WaitAndRetryAsync(
-                retryCount: 3,
-                sleepDurationProvider: attempt =>
-                    TimeSpan.FromSeconds(Math.Pow(2, attempt)) +
-                    TimeSpan.FromMilliseconds(Random.Shared.Next(0, 200)));
-    }
+            .OrResult(msg => msg.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            .WaitAndRetryAsync(3, retryAttempt => TimeSpan.FromSeconds(Math.Pow(2, retryAttempt)));
 
-    private static IAsyncPolicy<HttpResponseMessage> GetTimeoutPolicy()
-    {
-        return Policy.TimeoutAsync<HttpResponseMessage>(TimeSpan.FromSeconds(10));
-    }
-}
-
-public static class BotRunner
-{
-    public static async Task Run(string botToken)
-    {
-        var app = new WeatherBotApplication(botToken);
-        await app.RunAsync();
-    }
+    private static IAsyncPolicy<HttpResponseMessage> GetTimeoutPolicy() =>
+        Policy.TimeoutAsync<HttpResponseMessage>(TimeSpan.FromSeconds(10));
 }
 
 public static class Program
@@ -103,17 +119,23 @@ public static class Program
 
         try
         {
-            if (!File.Exists(tokenPath) && File.Exists("token.txt"))
+            if (!File.Exists(tokenPath))
             {
-                tokenPath = "token.txt";
+                if (File.Exists("../token.txt")) tokenPath = "../token.txt";
             }
             
+            if (!File.Exists(tokenPath))
+            {
+                Console.WriteLine($"❌ Could not find {tokenPath}");
+                return;
+            }
+
             botToken = await File.ReadAllTextAsync(tokenPath);
             botToken = botToken.Trim();
         }
         catch
         {
-            Console.WriteLine($"❌ Could not read bot token from {tokenPath}!");
+            Console.WriteLine($"❌ Error reading bot token from {tokenPath}!");
             return;
         }
 
@@ -124,6 +146,7 @@ public static class Program
         }
 
         Console.WriteLine("🤖 Starting Weather Bot...");
-        await BotRunner.Run(botToken);
+        var app = new WeatherBotApplication(botToken);
+        await app.RunAsync();
     }
 }
