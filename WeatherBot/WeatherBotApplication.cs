@@ -1,7 +1,5 @@
-using System.IO;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Logging;
 using Telegram.Bot;
 using Polly;
@@ -12,7 +10,7 @@ using WeatherBot.Repositories;
 using WeatherBot.Services;
 using WeatherBot.Telegram;
 using WeatherBot.Telegram.Handlers;
-
+using WeatherBot.Workers; 
 
 namespace WeatherBot;
 
@@ -33,12 +31,15 @@ public class WeatherBotApplication
                 httpClientBuilder
                     .AddPolicyHandler(GetRetryPolicy())
                     .AddPolicyHandler(GetTimeoutPolicy());
+
                 services.AddScoped<SimpleNotificationService>();
                 services.AddScoped<SubscriptionService>();
                 services.AddScoped<IWeatherService, WeatherService>();
                 services.AddScoped<ILocationService, LocationService>();
                 
                 services.AddScoped<IUserRepository, SqliteUserRepository>();
+
+                services.AddHostedService<AlertWorker>();
 
                 services.AddLogging(builder => 
                     builder.AddConsole().SetMinimumLevel(LogLevel.Information));
@@ -61,7 +62,8 @@ public class WeatherBotApplication
             }
         );
 
-        Console.WriteLine("Bot started!");
+        Console.WriteLine("Bot started! Press Ctrl+C to stop.");
+        
         await _host.RunAsync();
     }
 
@@ -96,23 +98,30 @@ public static class Program
 {
     public static async Task Main(string[] args)
     {
-        var tokenPath = Path.Combine("WeatherBot", "token.txt");
-    string botToken;
+        var tokenPath = "token.txt";
+        string botToken;
 
-    try
-    {
-        botToken = File.ReadAllText(tokenPath).Trim();
-    }
-    catch
-    {
-        Console.WriteLine($"❌ Could not read bot token from {tokenPath}!");
-        return;
-    }
-    if (string.IsNullOrWhiteSpace(botToken))
-    {
-        Console.WriteLine("❌ Bot token is missing or empty in token.txt.");
-        return;
-    }
+        try
+        {
+            if (!File.Exists(tokenPath) && File.Exists("token.txt"))
+            {
+                tokenPath = "token.txt";
+            }
+            
+            botToken = await File.ReadAllTextAsync(tokenPath);
+            botToken = botToken.Trim();
+        }
+        catch
+        {
+            Console.WriteLine($"❌ Could not read bot token from {tokenPath}!");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(botToken))
+        {
+            Console.WriteLine("❌ Bot token is missing or empty.");
+            return;
+        }
 
         Console.WriteLine("🤖 Starting Weather Bot...");
         await BotRunner.Run(botToken);

@@ -22,101 +22,80 @@ public sealed class SimpleNotificationService
 
     public async Task SendDailyNotificationsAsync()
     {
-        try
+        var allUsers = await _userRepository.GetAllUsersAsync();
+
+        foreach (var user in allUsers)
         {
-            var allUsers = await _userRepository.GetAllUsersAsync();
-
-            foreach (var user in allUsers)
+            foreach (var subscription in user.GetSubscriptionsForDailyWeather())
             {
-                var dailySubscriptions = user.GetSubscriptionsForDailyWeather();
-
-                foreach (var subscription in dailySubscriptions)
+                var weather = await _weatherService.GetCurrentWeatherAsync(subscription.Coordinate);
+                if (weather != null)
                 {
-                    try
-                    {
-                        var weather = await _weatherService.GetCurrentWeatherAsync(subscription.Coordinate);
-                        if (weather != null)
-                        {
-                            var message = $"🌤️ Daily weather in {subscription.LocationName}:\n" +
-                                         $"Temperature: {weather.Temperature}\n" +
-                                         $"Condition: {weather.Description}\n" +
-                                         $"Wind: {weather.WindSpeed} m/s";
+                    var message = $"📅 Daily Forecast for {subscription.LocationName}:\n" +
+                                 $"{weather.Description}, {weather.Temperature}";
+                    await SendMessageAsync(user.Id, message);
+                }
+                await Task.Delay(200); 
+            }
+        }
+    }
 
-                            await _botClient.SendMessage(user.Id, message);
-                        }
-                        else
+    public async Task CheckAndSendAlertsAsync()
+    {
+        var allUsers = await _userRepository.GetAllUsersAsync();
+
+        foreach (var user in allUsers)
+        {
+            var alertSubscriptions = user.GetSubscriptionsForEmergencyAlerts();
+
+            foreach (var sub in alertSubscriptions)
+            {
+                var alerts = await _weatherService.GetAlertsAsync(sub.LocationName);
+
+                if (alerts != null && alerts.Any())
+                {
+                    foreach (var alert in alerts)
+                    {
+                        var message = $"🚨 EMERGENCY ALERT: {sub.LocationName} 🚨\n\n" +
+                                      $"⚠️ {alert.Headline}\n" +
+                                      $"ℹ️ {alert.Event}\n" +
+                                      $"📝 {alert.Description}";
+                        
+                        if (!string.IsNullOrWhiteSpace(alert.Instruction))
                         {
-                            await _botClient.SendMessage(user.Id, 
-                                $"❌ Could not get weather data for {subscription.LocationName}");
+                            message += $"\n\n👮 Instruction: {alert.Instruction}";
                         }
 
-                        await Task.Delay(200);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Error sending notification to user {user.Id}: {ex.Message}");
+                        await SendMessageAsync(user.Id, message);
                     }
                 }
+                await Task.Delay(200); 
             }
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error in daily notifications: {ex.Message}");
-        }
-    }
-
-    public async Task SendEmergencyAlertAsync(string locationName, string alertMessage)
-    {
-        try
-        {
-            var allUsers = await _userRepository.GetAllUsersAsync();
-
-            var affectedUsers = allUsers
-                .Where(u => u.Subscriptions.Any(s =>
-                    s.LocationName.Equals(locationName, StringComparison.OrdinalIgnoreCase) &&
-                    s.SendEmergencyAlerts))
-                .ToList();
-
-            foreach (var user in affectedUsers)
-            {
-                await _botClient.SendMessage(user.Id, $"🚨 EMERGENCY for {locationName}:\n{alertMessage}");
-                await Task.Delay(200);
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error sending emergency alerts: {ex.Message}");
-        }
-    }
-
-    public async Task SendMessageAsync(long chatId, string message)
-    {
-        await _botClient.SendMessage(chatId, message);
     }
 
     public async Task SendWeatherAsync(long chatId, string locationName)
     {
+        var weather = await _weatherService.GetCurrentWeatherAsync(locationName);
+        if (weather == null)
+        {
+            await SendMessageAsync(chatId, "❌ Weather data not found.");
+            return;
+        }
+
+        var message = $"Now in {locationName}:\n{weather.Description}, {weather.Temperature}";
+        await SendMessageAsync(chatId, message);
+    }
+
+    private async Task SendMessageAsync(long chatId, string message)
+    {
         try
         {
-            var weather = await _weatherService.GetCurrentWeatherAsync(locationName);
-
-            if (weather == null)
-            {
-                await SendMessageAsync(chatId, $"❌ Could not get weather data for '{locationName}'. Please check the location name and try again.");
-                return;
-            }
-
-            var message = $"🌤️ Weather in {locationName}:\n" +
-                         $"Temperature: {weather.Temperature}\n" +
-                         $"Condition: {weather.Description}\n" +
-                         $"Wind: {weather.WindSpeed} m/s\n" +
-                         $"Updated: {weather.Timestamp:HH:mm} UTC";
-
-            await SendMessageAsync(chatId, message);
+            await _botClient.SendMessage(chatId, message);
         }
         catch (Exception ex)
         {
-            await SendMessageAsync(chatId, $"❌ Error getting weather information: {ex.Message}");
+            Console.WriteLine($"Failed to send message to {chatId}: {ex.Message}");
         }
     }
 }
