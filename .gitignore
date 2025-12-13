@@ -1,3 +1,10 @@
 bin/
 obj/
 *.json
+venv/
+__pycache__/
+.venv/
+token.txt
+users.db
+.dotnet/
+.nuget/

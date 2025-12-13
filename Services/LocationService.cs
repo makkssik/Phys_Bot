@@ -29,35 +29,47 @@ public class LocationService : ILocationService
         {
             _logger.LogInformation("🔍 Searching coordinates for: {LocationName}", locationName);
 
-            var url = $"https://geocoding-api.open-meteo.com/v1/search?name={Uri.EscapeDataString(locationName)}&count=1&format=json";
-            
-            var response = await _httpClient.GetAsync(url);
-            
-            if (!response.IsSuccessStatusCode)
+            // Try the requested spelling, then a space-normalized variant (handles cases like "Saint-Petersburg")
+            var searchVariants = new[]
             {
-                _logger.LogError("❌ Geocoding API returned status: {StatusCode}", response.StatusCode);
-                return null;
-            }
+                locationName,
+                locationName.Replace("-", " "),
+            }.Distinct(StringComparer.OrdinalIgnoreCase);
 
-            var json = await response.Content.ReadAsStringAsync();
-            _logger.LogDebug("📄 Geocoding API response: {Json}", json);
+            HttpResponseMessage? response = null;
+            GeocodingResponse? geocodingData = null;
 
-            var geocodingData = JsonSerializer.Deserialize<GeocodingResponse>(json, new JsonSerializerOptions 
-            { 
-                PropertyNameCaseInsensitive = true 
-            });
-
-            var location = geocodingData?.Results?.FirstOrDefault();
-            if (location == null)
+            foreach (var variant in searchVariants)
             {
-                _logger.LogWarning("❌ No coordinates found for: {LocationName}", locationName);
-                return null;
-            }
+                var url = $"https://geocoding-api.open-meteo.com/v1/search?name={Uri.EscapeDataString(variant)}&count=1&format=json";
+                _logger.LogDebug("📍 Geocoding variant: {Variant}", variant);
 
-            _logger.LogInformation("✅ Found coordinates: {LocationName} -> {Lat}, {Lon}", 
-                locationName, location.Latitude, location.Longitude);
-                
-            return new Coordinate(location.Latitude, location.Longitude);
+                response = await _httpClient.GetAsync(url);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogError("❌ Geocoding API returned status: {StatusCode} for variant {Variant}", response.StatusCode, variant);
+                    continue;
+                }
+
+                var json = await response.Content.ReadAsStringAsync();
+                _logger.LogDebug("📄 Geocoding API response: {Json}", json);
+
+                geocodingData = JsonSerializer.Deserialize<GeocodingResponse>(json, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+
+                if (geocodingData?.Results?.Any() == true)
+                {
+                    var location = geocodingData.Results.First();
+                    _logger.LogInformation("✅ Found coordinates: {LocationName} -> {Lat}, {Lon}",
+                        variant, location.Latitude, location.Longitude);
+                    return new Coordinate(location.Latitude, location.Longitude);
+                }
+            }
+            
+            _logger.LogWarning("❌ No coordinates found for: {LocationName}", locationName);
+            return null;
         }
         catch (HttpRequestException ex)
         {
