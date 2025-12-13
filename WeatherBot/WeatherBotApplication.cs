@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Telegram.Bot;
+using Telegram.Bot.Types;
 using Polly;
 using Polly.Extensions.Http;
 using WeatherBot.Interfaces.Repositories;
@@ -72,7 +73,7 @@ public class WeatherBotApplication
                 return;
             }
         }
-
+        
         var bot = _host.Services.GetRequiredService<Bot>();
         var botClient = _host.Services.GetRequiredService<ITelegramBotClient>();
         
@@ -84,20 +85,73 @@ public class WeatherBotApplication
         {
             try { await botClient.SetWebhook(""); } catch { }
         }
+        
+        var commands = new[]
+        {
+            new BotCommand { Command = "start", Description = "Начать работу" },
+            new BotCommand { Command = "weather", Description = "Погода (напр. /weather London)" },
+            new BotCommand { Command = "subscribe", Description = "Подписаться" },
+            new BotCommand { Command = "subscriptions", Description = "Мои подписки" },
+            new BotCommand { Command = "togglealert", Description = "Вкл/Выкл тревоги" },
+            new BotCommand { Command = "unsubscribe", Description = "Отписаться" },
+            new BotCommand { Command = "checkalerts", Description = "Проверить тревоги (Админ)" }
+        };
 
+        try 
+        {
+            await botClient.SetMyCommands(commands);
+            Console.WriteLine("✅ Telegram menu commands updated.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"⚠️ Could not set commands: {ex.Message}");
+        }
+        
         botClient.StartReceiving(
             updateHandler: async (client, update, token) => await bot.HandleUpdateAsync(update),
             errorHandler: (client, exception, token) => 
             {
-                var logger = _host.Services.GetRequiredService<ILogger<WeatherBotApplication>>();
-                logger.LogError(exception, "Telegram bot error");
+                Console.WriteLine($"Telegram Error: {exception.Message}");
                 return Task.CompletedTask;
             }
         );
-
-        Console.WriteLine("Bot started! Press Ctrl+C to stop.");
         
-        await _host.RunAsync();
+        await _host.StartAsync();
+
+        Console.WriteLine("🤖 Weather Bot is RUNNING!");
+        Console.WriteLine("------------------------------------------------");
+        Console.WriteLine("Console Commands:");
+        Console.WriteLine("  test  - Send TEST emergency alert to all subscribers");
+        Console.WriteLine("  exit  - Stop the bot");
+        Console.WriteLine("------------------------------------------------");
+        
+        while (true)
+        {
+            var command = await Task.Run(() => Console.ReadLine());
+
+            if (string.IsNullOrWhiteSpace(command)) continue;
+
+            if (command.Trim().ToLower() == "test")
+            {
+                Console.WriteLine("🔄 Executing test alert run...");
+                using (var scope = _host.Services.CreateScope())
+                {
+                    var notificationService = scope.ServiceProvider.GetRequiredService<SimpleNotificationService>();
+                    await notificationService.SendTestAlertAsync();
+                }
+            }
+            else if (command.Trim().ToLower() == "exit")
+            {
+                Console.WriteLine("Stopping...");
+                break;
+            }
+            else
+            {
+                Console.WriteLine($"Unknown command: {command}");
+            }
+        }
+        
+        await _host.StopAsync();
     }
 
     private static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy() =>
@@ -108,45 +162,4 @@ public class WeatherBotApplication
 
     private static IAsyncPolicy<HttpResponseMessage> GetTimeoutPolicy() =>
         Policy.TimeoutAsync<HttpResponseMessage>(TimeSpan.FromSeconds(10));
-}
-
-public static class Program
-{
-    public static async Task Main(string[] args)
-    {
-        var tokenPath = "token.txt";
-        string botToken;
-
-        try
-        {
-            if (!File.Exists(tokenPath))
-            {
-                if (File.Exists("../token.txt")) tokenPath = "../token.txt";
-            }
-            
-            if (!File.Exists(tokenPath))
-            {
-                Console.WriteLine($"❌ Could not find {tokenPath}");
-                return;
-            }
-
-            botToken = await File.ReadAllTextAsync(tokenPath);
-            botToken = botToken.Trim();
-        }
-        catch
-        {
-            Console.WriteLine($"❌ Error reading bot token from {tokenPath}!");
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(botToken))
-        {
-            Console.WriteLine("❌ Bot token is missing or empty.");
-            return;
-        }
-
-        Console.WriteLine("🤖 Starting Weather Bot...");
-        var app = new WeatherBotApplication(botToken);
-        await app.RunAsync();
-    }
 }

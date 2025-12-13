@@ -1,5 +1,6 @@
 using Telegram.Bot;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 using WeatherBot.Telegram.Handlers;
 
 namespace WeatherBot.Telegram;
@@ -17,17 +18,18 @@ public class Bot
 
     public async Task HandleUpdateAsync(Update update)
     {
-        if (update.Message?.Text == null) return;
+        if (update.Message is not { } message) return;
+        if (message.Text is not { } text) return;
 
-        var message = update.Message;
-        var text = message.Text;
         var chatId = message.Chat.Id;
         var username = message.From?.Username ?? "User";
 
         try
         {
-            var args = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            var command = args[0].ToLower();
+            var parts = text.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+            
+            var command = parts[0].ToLower();
+            var arguments = parts.Length > 1 ? parts[1].Trim() : string.Empty;
 
             switch (command)
             {
@@ -36,17 +38,15 @@ public class Bot
                     break;
 
                 case "/weather":
-                    var location = args.Length > 1 ? args[1] : "";
-                    await _commandHandler.HandleWeatherCommand(chatId, location);
+                    await _commandHandler.HandleWeatherCommand(chatId, arguments);
                     break;
 
                 case "/subscribe":
-                    await _commandHandler.HandleSubscribeCommand(chatId, args.Skip(1).ToArray());
+                    await _commandHandler.HandleSubscribeCommand(chatId, arguments);
                     break;
 
                 case "/unsubscribe":
-                    var unsubscribeLocation = args.Length > 1 ? args[1] : "";
-                    await _commandHandler.HandleUnsubscribeCommand(chatId, unsubscribeLocation);
+                    await _commandHandler.HandleUnsubscribeCommand(chatId, arguments);
                     break;
 
                 case "/subscriptions":
@@ -58,18 +58,21 @@ public class Bot
                     break;
 
                 case "/togglealert":
-                    var toggleLoc = args.Length > 1 ? args[1] : "";
-                    await _commandHandler.HandleToggleAlerts(chatId, toggleLoc);
+                    await _commandHandler.HandleToggleAlerts(chatId, arguments);
                     break;
 
                 default:
-                    await _commandHandler.HandleStartCommand(chatId, username);
+                    if (message.Chat.Type == ChatType.Private && !command.StartsWith("/"))
+                    {
+                         await _commandHandler.HandleWeatherCommand(chatId, text);
+                    }
                     break;
             }
         }
         catch (Exception ex)
         {
-            await _botClient.SendMessage(chatId, $"❌ Error: {ex.Message}");
+            Console.WriteLine($"Error handling update: {ex}");
+            await _botClient.SendMessage(chatId, "❌ Произошла ошибка при обработке команды.");
         }
     }
 }
