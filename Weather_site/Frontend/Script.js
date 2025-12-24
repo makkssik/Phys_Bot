@@ -1,4 +1,4 @@
-const API_BASE = "https://conglobately-unempty-rosio.ngrok-free.dev/api/weather";
+const API_BASE = "/api/weather";
 
 let forecastDays = 3;
 
@@ -14,18 +14,21 @@ const currentTemp = document.getElementById("current-temp");
 const currentWind = document.getElementById("current-wind");
 const currentUpdated = document.getElementById("current-updated");
 
+const aiAdviceBox = document.getElementById("ai-advice-box");
+const aiText = document.getElementById("ai-text");
+
 const forecastContent = document.getElementById("forecast-content");
 
 function animateTemperature(element, target) {
   let current = 0;
   const step = Math.max(1, Math.floor(target / 60));
   const interval = setInterval(() => {
-      current += step;
-      if (current >= target) {
-          current = target;
-          clearInterval(interval);
-      }
-      element.textContent = current + "°C";
+    current += step;
+    if (current >= target) {
+      current = target;
+      clearInterval(interval);
+    }
+    element.textContent = current + "°C";
   }, 16);
 }
 
@@ -120,6 +123,13 @@ function renderWeather(data) {
     currentIcon.src = "";
     currentIcon.style.display = "none";
   };
+  
+  if (data.ai_advice) {
+    aiText.textContent = data.ai_advice;
+    aiAdviceBox.classList.remove("hidden");
+  } else {
+    aiAdviceBox.classList.add("hidden");
+  }
 
   function applyBackgroundByWeather(code) {
     const body = document.body;
@@ -135,7 +145,7 @@ function renderWeather(data) {
     else if (code >= 95) body.classList.add("weather-storm");
     else if ([45, 48].includes(code)) body.classList.add("weather-fog");
     else body.classList.add("weather-cloudy");
-}
+  }
 
   function applyWeatherGradient(code) {
     const cards = document.querySelectorAll(".dynamic-weather-card");
@@ -152,18 +162,18 @@ function renderWeather(data) {
     else if ([45, 48].includes(code)) themeClass = "weather-fog";
 
     cards.forEach(card => {
-        card.classList.remove(
-            "weather-clear",
-            "weather-partly",
-            "weather-cloudy",
-            "weather-rain",
-            "weather-snow",
-            "weather-fog",
-            "weather-storm"
-        );
-        card.classList.add(themeClass);
+      card.classList.remove(
+          "weather-clear",
+          "weather-partly",
+          "weather-cloudy",
+          "weather-rain",
+          "weather-snow",
+          "weather-fog",
+          "weather-storm"
+      );
+      card.classList.add(themeClass);
     });
-}
+  }
 
   currentWind.textContent = `${current.windspeed} м/с`;
   currentUpdated.textContent = new Date(current.time).toLocaleString("ru-RU");
@@ -194,8 +204,8 @@ function renderWeather(data) {
 document.querySelectorAll(".forecast-btn").forEach(btn => {
   btn.addEventListener("click", () => {
 
-    document.querySelectorAll(".forecast-btn").forEach(el => 
-      el.classList.remove("active")
+    document.querySelectorAll(".forecast-btn").forEach(el =>
+        el.classList.remove("active")
     );
     btn.classList.add("active");
 
@@ -204,8 +214,8 @@ document.querySelectorAll(".forecast-btn").forEach(btn => {
     const titleEl = document.getElementById("forecast-title");
     if (titleEl) {
       titleEl.textContent = `Прогноз на ${forecastDays} `
-        + (forecastDays === 1 ? "день" :
-           forecastDays <= 4 ? "дня" : "дней");
+          + (forecastDays === 1 ? "день" :
+              forecastDays <= 4 ? "дня" : "дней");
     }
 
     const city = document.getElementById("city-input").value.trim();

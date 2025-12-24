@@ -88,13 +88,13 @@ public class WeatherBotApplication
         
         var commands = new[]
         {
-            new BotCommand { Command = "start", Description = "Начать работу" },
-            new BotCommand { Command = "weather", Description = "Погода (напр. /weather London)" },
-            new BotCommand { Command = "subscribe", Description = "Подписаться" },
-            new BotCommand { Command = "subscriptions", Description = "Мои подписки" },
-            new BotCommand { Command = "togglealert", Description = "Вкл/Выкл тревоги" },
-            new BotCommand { Command = "unsubscribe", Description = "Отписаться" },
-            new BotCommand { Command = "checkalerts", Description = "Проверить тревоги (Админ)" }
+            new BotCommand { Command = "start", Description = "🚀 Запустить бота" },
+            new BotCommand { Command = "weather", Description = "🌤 Узнать погоду" },
+            new BotCommand { Command = "profile", Description = "👤 Мой профиль (для AI)" },
+            new BotCommand { Command = "subscribe", Description = "🔔 Подписаться на город" },
+            new BotCommand { Command = "subscriptions", Description = "📋 Мои подписки" },
+            new BotCommand { Command = "help", Description = "❓ Как пользоваться" },
+            new BotCommand { Command = "unsubscribe", Description = "❌ Отписаться" }
         };
 
         try 

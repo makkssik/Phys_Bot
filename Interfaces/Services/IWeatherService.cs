@@ -6,16 +6,7 @@ public interface IWeatherService
 {
     Task<WeatherData?> GetCurrentWeatherAsync(string locationName);
     Task<WeatherData?> GetCurrentWeatherAsync(Coordinate coordinate);
-    
     Task<List<WeatherAlert>> GetAlertsAsync(string locationName);
-}
-
-public record WeatherData(
-    Temperature Temperature,
-    WeatherCondition Condition,
-    double WindSpeed,
-    DateTime Timestamp
-)
-{
-    public string Description => Condition.Description;
+    
+    Task<string> GetClothingRecommendationAsync(double temp, double wind, int code, string hobbies = "");
 }

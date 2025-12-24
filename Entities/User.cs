@@ -14,6 +14,18 @@ public sealed class User
     [JsonInclude]
     public string Username { get; private set; } = string.Empty;
 
+    [JsonInclude]
+    public bool IsMotorist { get; private set; }
+
+    [JsonInclude]
+    public int? Age { get; private set; }
+
+    [JsonInclude]
+    public string Gender { get; private set; } = "unknown";
+
+    [JsonInclude]
+    public string Hobbies { get; private set; } = "";
+
     public User(long id, string username)
     {
         Id = id;
@@ -22,6 +34,14 @@ public sealed class User
     }
 
     private User() { }
+
+    public void UpdateProfile(int? age, string gender, string hobbies, bool isMotorist)
+    {
+        Age = age;
+        Gender = gender?.ToLower() ?? "unknown";
+        Hobbies = hobbies?.ToLower() ?? "";
+        IsMotorist = isMotorist;
+    }
 
     public Subscription AddSubscription(string locationName, Coordinate coordinate, bool sendDailyWeather, bool sendEmergencyAlerts)
     {

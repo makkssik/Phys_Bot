@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration; 
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using WeatherBot.Entities.ValueObjects;
@@ -14,17 +16,22 @@ public class WeatherService : IWeatherService
     private readonly ILogger<WeatherService> _logger;
     private readonly ILocationService _locationService;
     private readonly IMemoryCache _cache;
-
+    private readonly string _mlApiUrl; 
+    
     public WeatherService(
         HttpClient httpClient, 
         ILogger<WeatherService> logger, 
         ILocationService locationService,
-        IMemoryCache cache)
+        IMemoryCache cache,
+        IConfiguration configuration) 
     {
         _httpClient = httpClient;
         _logger = logger;
         _locationService = locationService;
         _cache = cache;
+        
+        _mlApiUrl = configuration["AppConfig:MlApiUrl"] 
+                    ?? throw new Exception("URL ML-сервиса не найден в appsettings.json");
     }
 
     public async Task<WeatherData?> GetCurrentWeatherAsync(string locationName)
@@ -50,6 +57,43 @@ public class WeatherService : IWeatherService
             _cache.Set(cacheKey, weather, TimeSpan.FromMinutes(15));
         }
         return weather;
+    }
+
+    public async Task<string> GetClothingRecommendationAsync(double temp, double wind, int code, string hobbies = "")
+    {
+        try
+        {
+            var payload = new
+            {
+                temperature = temp,
+                wind_speed = wind,
+                weather_code = code,
+                hobbies = hobbies
+            };
+
+            var json = JsonSerializer.Serialize(payload);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            
+            var response = await _httpClient.PostAsync($"{_mlApiUrl}/api/recommend", content, cts.Token);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var responseString = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(responseString);
+                if (doc.RootElement.TryGetProperty("recommendation", out var recElement))
+                {
+                    return recElement.GetString() ?? "";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"ML Recommendation failed: {ex.Message}. Make sure Python backend is running.");
+        }
+
+        return "";
     }
 
     public async Task<List<WeatherAlert>> GetAlertsAsync(string locationName)
@@ -141,33 +185,32 @@ public class WeatherService : IWeatherService
 
     private static WeatherCondition GetWeatherCondition(int weatherCode)
     {
-        return weatherCode switch
+        string desc = weatherCode switch
         {
-            0 => new WeatherCondition("0", "☀️ Clear sky"),
-            1 => new WeatherCondition("1", "🌤️ Mainly clear"),
-            2 => new WeatherCondition("2", "⛅ Partly cloudy"),
-            3 => new WeatherCondition("3", "☁️ Overcast"),
-            45 => new WeatherCondition("45", "🌫️ Fog"),
-            48 => new WeatherCondition("48", "🌫️ Depositing rime fog"),
-            51 => new WeatherCondition("51", "🌧️ Light drizzle"),
-            53 => new WeatherCondition("53", "🌧️ Moderate drizzle"),
-            55 => new WeatherCondition("55", "🌧️ Dense drizzle"),
-            61 => new WeatherCondition("61", "🌧️ Slight rain"),
-            63 => new WeatherCondition("63", "🌧️ Moderate rain"),
-            65 => new WeatherCondition("65", "🌧️ Heavy rain"),
-            71 => new WeatherCondition("71", "🌨️ Slight snow fall"),
-            73 => new WeatherCondition("73", "🌨️ Moderate snow fall"),
-            75 => new WeatherCondition("75", "🌨️ Heavy snow fall"),
-            80 => new WeatherCondition("80", "🌦️ Slight rain showers"),
-            81 => new WeatherCondition("81", "🌦️ Moderate rain showers"),
-            82 => new WeatherCondition("82", "🌦️ Violent rain showers"),
-            95 => new WeatherCondition("95", "⛈️ Thunderstorm"),
-            96 => new WeatherCondition("96", "⛈️ Thunderstorm with hail"),
-            99 => new WeatherCondition("99", "⛈️ Thunderstorm with heavy hail"),
-            _ => new WeatherCondition(weatherCode.ToString(), "❓ Unknown condition")
+            0 => "☀️ Clear sky",
+            1 => "🌤️ Mainly clear",
+            2 => "⛅ Partly cloudy",
+            3 => "☁️ Overcast",
+            45 => "🌫️ Fog",
+            48 => "🌫️ Depositing rime fog",
+            51 => "🌧️ Light drizzle",
+            53 => "🌧️ Moderate drizzle",
+            55 => "🌧️ Dense drizzle",
+            61 => "🌧️ Slight rain",
+            63 => "🌧️ Moderate rain",
+            65 => "🌧️ Heavy rain",
+            71 => "🌨️ Slight snow fall",
+            73 => "🌨️ Moderate snow fall",
+            75 => "🌨️ Heavy snow fall",
+            80 => "🌦️ Slight rain showers",
+            81 => "🌦️ Moderate rain showers",
+            82 => "🌦️ Violent rain showers",
+            95 => "⛈️ Thunderstorm",
+            _ => "❓ Unknown condition"
         };
+        return new WeatherCondition(weatherCode.ToString(), desc);
     }
-
+    
     private class OpenMeteoResponse
     {
         [JsonPropertyName("current_weather")]
@@ -202,8 +245,5 @@ public class WeatherService : IWeatherService
         
         [JsonPropertyName("description")]
         public string Description { get; set; } = "";
-        
-        [JsonPropertyName("sender_name")]
-        public string SenderName { get; set; } = "";
     }
 }
