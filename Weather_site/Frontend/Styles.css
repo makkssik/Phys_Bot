@@ -457,3 +457,40 @@ button:active {
 .forecast-btn:hover {
   background: rgba(255,255,255,0.7);
 }
+
+.ai-advice {
+  margin: 10px auto 24px auto;
+  padding: 12px 20px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  display: inline-block;
+  backdrop-filter: blur(8px);
+  max-width: 90%;
+  animation: fadeInUp 0.8s ease forwards;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+
+.ai-label {
+  font-weight: 800;
+  color: #fbbf24;
+  text-shadow: 0 0 10px rgba(251, 191, 36, 0.5);
+  margin-right: 8px;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.5px;
+}
+
+#ai-text {
+  color: #ffffff !important;
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.hidden { display: none !important; }

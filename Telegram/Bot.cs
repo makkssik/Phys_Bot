@@ -36,9 +36,16 @@ public class Bot
                 case "/start":
                     await _commandHandler.HandleStartCommand(chatId, username);
                     break;
+                case "/help":
+                    await _commandHandler.HandleHelpCommand(chatId);
+                    break;
 
                 case "/weather":
                     await _commandHandler.HandleWeatherCommand(chatId, arguments);
+                    break;
+                
+                case "/profile":
+                    await _commandHandler.HandleSetProfileCommand(chatId, arguments);
                     break;
 
                 case "/subscribe":

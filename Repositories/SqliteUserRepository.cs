@@ -37,7 +37,11 @@ public sealed class SqliteUserRepository : IUserRepository
                 PRAGMA foreign_keys = ON;
                 CREATE TABLE IF NOT EXISTS Users (
                     Id INTEGER PRIMARY KEY,
-                    Username TEXT NOT NULL
+                    Username TEXT NOT NULL,
+                    IsMotorist INTEGER NOT NULL DEFAULT 0,
+                    Age INTEGER NULL,
+                    Gender TEXT NOT NULL DEFAULT 'unknown',
+                    Hobbies TEXT NOT NULL DEFAULT ''
                 );
                 CREATE TABLE IF NOT EXISTS Subscriptions (
                     Id TEXT PRIMARY KEY,
@@ -91,7 +95,7 @@ public sealed class SqliteUserRepository : IUserRepository
         var command = connection.CreateCommand();
         command.CommandText =
             """
-            SELECT u.Id, u.Username,
+            SELECT u.Id, u.Username, u.IsMotorist, u.Age, u.Gender, u.Hobbies,
                    s.Id, s.LocationName, s.Latitude, s.Longitude, s.CreatedAt, s.SendDailyWeather, s.SendEmergencyAlerts
             FROM Users u
             LEFT JOIN Subscriptions s ON s.UserId = u.Id
@@ -104,34 +108,31 @@ public sealed class SqliteUserRepository : IUserRepository
         while (await reader.ReadAsync())
         {
             var userId = reader.GetInt64(0);
-            var username = reader.GetString(1);
 
             if (!users.TryGetValue(userId, out var user))
             {
+                var username = reader.GetString(1);
+                var isMotorist = reader.GetInt32(2) == 1;
+                int? age = reader.IsDBNull(3) ? null : reader.GetInt32(3);
+                var gender = reader.GetString(4);
+                var hobbies = reader.GetString(5);
+
                 user = new User(userId, username);
+                user.UpdateProfile(age, gender, hobbies, isMotorist);
                 users[userId] = user;
             }
 
-            if (reader.IsDBNull(2))
+            if (reader.IsDBNull(6))
                 continue;
 
-            var subscriptionId = Guid.Parse(reader.GetString(2));
-            var locationName = reader.GetString(3);
-            var latitude = reader.GetDouble(4);
-            var longitude = reader.GetDouble(5);
-            var createdAt = DateTime.Parse(reader.GetString(6), CultureInfo.InvariantCulture,
-                DateTimeStyles.RoundtripKind);
-            var sendDailyWeather = reader.GetInt32(7) == 1;
-            var sendEmergencyAlerts = reader.GetInt32(8) == 1;
-
             var subscription = new Subscription(
-                subscriptionId,
+                Guid.Parse(reader.GetString(6)),
                 userId,
-                locationName,
-                new Coordinate(latitude, longitude),
-                sendDailyWeather,
-                sendEmergencyAlerts,
-                createdAt);
+                reader.GetString(7),
+                new Coordinate(reader.GetDouble(8), reader.GetDouble(9)),
+                reader.GetInt32(11) == 1,
+                reader.GetInt32(12) == 1,
+                DateTime.Parse(reader.GetString(10), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
 
             user.Subscriptions.Add(subscription);
         }
@@ -164,12 +165,21 @@ public sealed class SqliteUserRepository : IUserRepository
         upsertUser.Transaction = sqliteTransaction;
         upsertUser.CommandText =
             """
-            INSERT INTO Users (Id, Username)
-            VALUES ($id, $username)
-            ON CONFLICT(Id) DO UPDATE SET Username = excluded.Username;
+            INSERT INTO Users (Id, Username, IsMotorist, Age, Gender, Hobbies)
+            VALUES ($id, $username, $isMotorist, $age, $gender, $hobbies)
+            ON CONFLICT(Id) DO UPDATE SET 
+                Username = excluded.Username,
+                IsMotorist = excluded.IsMotorist,
+                Age = excluded.Age,
+                Gender = excluded.Gender,
+                Hobbies = excluded.Hobbies;
             """;
         upsertUser.Parameters.AddWithValue("$id", user.Id);
         upsertUser.Parameters.AddWithValue("$username", user.Username);
+        upsertUser.Parameters.AddWithValue("$isMotorist", user.IsMotorist ? 1 : 0);
+        upsertUser.Parameters.AddWithValue("$age", user.Age.HasValue ? user.Age.Value : DBNull.Value);
+        upsertUser.Parameters.AddWithValue("$gender", user.Gender);
+        upsertUser.Parameters.AddWithValue("$hobbies", user.Hobbies);
 
         await upsertUser.ExecuteNonQueryAsync();
 
@@ -208,7 +218,7 @@ public sealed class SqliteUserRepository : IUserRepository
     private async Task<User?> ReadUserAsync(SqliteConnection connection, long userId)
     {
         var userCommand = connection.CreateCommand();
-        userCommand.CommandText = "SELECT Id, Username FROM Users WHERE Id = $id;";
+        userCommand.CommandText = "SELECT Id, Username, IsMotorist, Age, Gender, Hobbies FROM Users WHERE Id = $id;";
         userCommand.Parameters.AddWithValue("$id", userId);
 
         await using var reader = await userCommand.ExecuteReaderAsync();
@@ -216,6 +226,12 @@ public sealed class SqliteUserRepository : IUserRepository
             return null;
 
         var user = new User(reader.GetInt64(0), reader.GetString(1));
+        user.UpdateProfile(
+            reader.IsDBNull(3) ? null : reader.GetInt32(3),
+            reader.GetString(4),
+            reader.GetString(5),
+            reader.GetInt32(2) == 1
+        );
         await reader.DisposeAsync();
 
         var subscriptionsCommand = connection.CreateCommand();
